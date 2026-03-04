@@ -1,3 +1,17 @@
-build/
-.vscode/
+/Debug/
+/Release/
+/build/
+/SEMIHOST/
+
+# STM32CubeIDE local machine files
+.settings/*
+.vscode/*
+*.launch
+
 platform.json
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+test/*.bin
+test/keys
