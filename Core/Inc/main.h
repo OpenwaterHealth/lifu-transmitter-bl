@@ -97,8 +97,6 @@ void Error_Handler(void);
 #define RX_RDY_GPIO_Port GPIOC
 #define TX_RESET_L_Pin GPIO_PIN_8
 #define TX_RESET_L_GPIO_Port GPIOC
-#define THERMISTOR_Pin GPIO_PIN_2
-#define THERMISTOR_GPIO_Port GPIOC
 #define CALL_IN_Pin GPIO_PIN_2
 #define CALL_IN_GPIO_Port GPIOA
 #define SPI_SCK_Pin GPIO_PIN_5
@@ -141,6 +139,13 @@ void Error_Handler(void);
 #define EXT_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+extern CRC_HandleTypeDef hcrc;
+extern TIM_HandleTypeDef htim2;
+extern UART_HandleTypeDef huart1;
+
+#define DEBUG_UART huart1
+#define US_DELAY_TIMER htim2
 
 /* USER CODE END Private defines */
 
