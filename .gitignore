@@ -7,8 +7,9 @@
 .settings/*
 .vscode/*
 *.launch
-
+.venv/*
 platform.json
+test/libusb-1.0.29
 
 # Python cache/bytecode
 __pycache__/

@@ -1,3 +1,4 @@
+
 #ifndef INC_BL_TRUST_H_
 #define INC_BL_TRUST_H_
 
