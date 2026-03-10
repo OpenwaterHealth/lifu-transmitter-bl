@@ -176,3 +176,42 @@ void delay_ms(uint32_t ms)
         __NOP();  // Ensures the loop doesn't get optimized away
     }
 }
+
+void debug_uart_tx(const char *msg)
+{
+  uint32_t guard;
+  uint32_t idx = 0U;
+
+  while ((msg[idx] != '\0') && (idx < 255U))
+  {
+    guard = 1000000U;
+    while (((DEBUG_UART.Instance->ISR & USART_ISR_TXE) == 0U) && (guard > 0U))
+    {
+      --guard;
+    }
+
+    if (guard == 0U)
+    {
+      return;
+    }
+
+    DEBUG_UART.Instance->TDR = (uint8_t)msg[idx];
+    ++idx;
+  }
+
+  guard = 1000000U;
+  while (((DEBUG_UART.Instance->ISR & USART_ISR_TC) == 0U) && (guard > 0U))
+  {
+    --guard;
+  }
+}
+
+void debug_uart_clear(void)
+{
+  (void)HAL_UART_Transmit(&DEBUG_UART, (uint8_t *)"\033c", 2U, 100U);
+}
+
+uint32_t firmware_crc32(uint32_t fw_addr, uint32_t fw_len)
+{
+  return HAL_CRC_Calculate(&hcrc, (uint32_t *)fw_addr, fw_len);
+}
