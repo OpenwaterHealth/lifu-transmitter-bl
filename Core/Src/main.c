@@ -120,7 +120,9 @@ static void jump_to_application(uint32_t app_base)
     uint32_t app_rv = app_vectors[1];
 
     /* Print vector table before touching clocks/peripherals so the UART still works. */
+#ifdef DEBUG_ENABLED
     printf("BL: app SP=0x%08lX RV=0x%08lX\r\n", (unsigned long)app_sp, (unsigned long)app_rv);
+#endif
 
     FW_DEBUG("jump prep\r\n");
 
@@ -218,9 +220,11 @@ int main(void)
   uint8_t meta_valid;
   uint8_t enter_dfu;
 
+#ifdef DEBUG_ENABLED
   printf("LIFU Transmitter Bootloader\r\n");
   printf("VER: %s (%s)\r\n", FW_VERSION_STRING, FW_SHA_STRING);
   printf("Date: %s\r\n", FW_BUILD_TIME_STRING);
+#endif
 
   FW_DEBUG("boot start\r\n");
 

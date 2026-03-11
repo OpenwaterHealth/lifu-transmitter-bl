@@ -84,6 +84,9 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
+# Optional DMA-backed UART debug logging (off by default)
+option(DEBUG_ENABLED "Enable DMA-backed UART debug logging" OFF)
+
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
@@ -91,9 +94,16 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/sha256.c
     Core/Src/uECC.c
     Core/Src/bl_trust.c
-    Core/Src/lwrb.c    
-    Core/Src/logging.c
+    Core/Src/lwrb.c
 )
+
+if(DEBUG_ENABLED)
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE Core/Src/logging.c)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE DEBUG_ENABLED)
+    message(STATUS "Debug logging: ENABLED")
+else()
+    message(STATUS "Debug logging: DISABLED")
+endif()
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

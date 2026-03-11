@@ -27,6 +27,10 @@ float be_bytes_to_float(const uint8_t *b, size_t len);
 uint32_t firmware_crc32(uint32_t fw_addr, uint32_t fw_len);
 
 
+#ifdef DEBUG_ENABLED
 #define FW_DEBUG(fmt, ...) printf("[BL] " fmt, ##__VA_ARGS__)
+#else
+#define FW_DEBUG(fmt, ...) ((void)0)
+#endif
 
 #endif /* INC_UTILS_H_ */

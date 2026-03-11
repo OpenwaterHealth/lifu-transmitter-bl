@@ -113,6 +113,15 @@ target_link_libraries(USB_Device_Library PUBLIC stm32cubemx)
 # Add STM32CubeMX generated application sources to the project
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})
 
+# syscalls.c must not participate in LTO: its newlib syscall stubs (_fstat,
+# _isatty, etc.) are referenced only by libg_nano.a which is a non-LTO
+# archive processed after the LTO phase, causing spurious "undefined reference"
+# errors in Release builds with -flto.
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/syscalls.c
+    PROPERTIES COMPILE_FLAGS "-fno-lto"
+)
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE ${MX_LINK_DIRS})
 
