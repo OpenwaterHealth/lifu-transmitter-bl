@@ -112,6 +112,10 @@ static void jump_to_application(uint32_t app_base)
 
     debug_uart_tx("BL: jump prep\r\n");
 
+    /* Fully tear down USB before handing off so the application
+     * starts with the USB peripheral in reset state. */
+    MX_USB_DEVICE_DeInit();
+
     __disable_irq();
 
     /* Stop SysTick */
@@ -192,6 +196,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_AES_Init();
+  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
   const fw_metadata_t *meta = bl_metadata_ptr();
   bl_reset_flags_t reset_flags;
@@ -525,7 +530,7 @@ static void MX_IWDG_Init(void)
 
   /* USER CODE END IWDG_Init 1 */
   hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_16;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_32;
   hiwdg.Init.Window = 4095;
   hiwdg.Init.Reload = 4095;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)

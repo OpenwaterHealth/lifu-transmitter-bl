@@ -59,6 +59,43 @@ extern USBD_DescriptorsTypeDef FS_Desc;
 /* USER CODE END 1 */
 
 /**
+  * De-Initialize USB device Library, stop activity and disable peripheral
+  * @retval None
+  */
+void MX_USB_DEVICE_DeInit(void)
+{
+  /* USER CODE BEGIN USB_DEVICE_DeInit_PreTreatment */
+
+  /* USER CODE END USB_DEVICE_DeInit_PreTreatment */
+
+  (void)USBD_Stop(&hUsbDeviceFS);
+
+  /* USBD_Stop clears the D+ pull-up (BCDR.DPPU).  Give the host ~20 ms to
+   * register the disconnect while the USB clock is still running.  Without
+   * this delay the host may not see a clean disconnect/re-connect cycle and
+   * can reject the CDC enumeration that follows in the application. */
+  HAL_Delay(20U);
+
+  (void)USBD_DeInit(&hUsbDeviceFS);
+
+  /* Perform an RCC-level hardware reset of the USB peripheral.  This clears
+   * every USB register (CNTR, ISTR, DADDR, BTABLE, endpoint registers, BCDR,
+   * etc.) back to their power-on values so the application always starts with
+   * a completely clean peripheral, regardless of any DFU session state that
+   * was in progress before the jump. */
+  __HAL_RCC_USB_FORCE_RESET();
+  __HAL_RCC_USB_RELEASE_RESET();
+
+  /* Disable USB interrupt and clock so no USB activity reaches the application */
+  HAL_NVIC_DisableIRQ(USB_IRQn);
+  __HAL_RCC_USB_CLK_DISABLE();
+
+  /* USER CODE BEGIN USB_DEVICE_DeInit_PostTreatment */
+
+  /* USER CODE END USB_DEVICE_DeInit_PostTreatment */
+}
+
+/**
   * Init USB device Library, add supported class and start the library
   * @retval None
   */

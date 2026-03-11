@@ -33,6 +33,17 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+#define FLASH_DESC_STR      "@Firmware/0x08017800/1*2Kg,160*2Kg"
+#define FLASH_ERASE_TIME    (uint16_t)50
+#define FLASH_PROGRAM_TIME  (uint16_t)50                                                             
+
+#define DFU_META_START_ADDR METADATA_ADDRESS
+#define DFU_META_END_ADDR   (METADATA_ADDRESS + FLASH_PAGE_SIZE)
+#define DFU_APP_START_ADDR  USBD_DFU_APP_DEFAULT_ADD
+#define DFU_APP_SIZE_BYTES  APPLICATION_MAX_SIZE
+#define DFU_APP_END_ADDR    (DFU_APP_START_ADDR + DFU_APP_SIZE_BYTES)
+#define DFU_ERASE_ALL_CMD_ADDR  0xFFFFFFFFU
+
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -63,16 +74,7 @@
   * @{
   */
 
-#define FLASH_DESC_STR      "@Firmware/0x08017800/1*2Kg,160*2Kg"
-#define FLASH_ERASE_TIME    (uint16_t)50
-#define FLASH_PROGRAM_TIME  (uint16_t)50                                                             
-
-#define DFU_META_START_ADDR METADATA_ADDRESS
-#define DFU_META_END_ADDR   (METADATA_ADDRESS + FLASH_PAGE_SIZE)
-#define DFU_APP_START_ADDR  USBD_DFU_APP_DEFAULT_ADD
-#define DFU_APP_SIZE_BYTES  APPLICATION_MAX_SIZE
-#define DFU_APP_END_ADDR    (DFU_APP_START_ADDR + DFU_APP_SIZE_BYTES)
-#define DFU_ERASE_ALL_CMD_ADDR  0xFFFFFFFFU
+#define FLASH_DESC_STR      "@Internal Flash   /0x08000000/03*016Ka,01*016Kg,01*064Kg,07*128Kg,04*016Kg,01*064Kg,07*128Kg"
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
 
