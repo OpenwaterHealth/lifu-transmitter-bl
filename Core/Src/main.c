@@ -25,6 +25,7 @@
 #include "common.h"
 #include "memory_map.h"
 #include "bl_trust.h"
+#include "i2c_dfu_if.h"
 
 #include "utils.h"
 
@@ -79,7 +80,7 @@ DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 
 /* USER CODE BEGIN PV */
-
+extern USBD_HandleTypeDef hUsbDeviceFS;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -272,12 +273,36 @@ int main(void)
   debug_uart_tx("BL: entering DFU mode\r\n");
 
   bl_clear_boot_in_progress();
-  
+
+  /* Attempt USB DFU first — wait up to 1.5 s for the host to enumerate */
   debug_uart_tx("BL: init USB\r\n");
   MX_USB_DEVICE_Init();
-  HAL_Delay(100);
-  debug_uart_tx("BL: USB ready\r\n");
-    
+
+  uint8_t  use_i2c_dfu  = 0U;
+  uint32_t usb_deadline = HAL_GetTick() + 1500U;
+  while (HAL_GetTick() < usb_deadline)
+  {
+    /* USBD_STATE_ADDRESSED (2) or CONFIGURED (3) means a host is present */
+    if (hUsbDeviceFS.dev_state >= 2U)
+    {
+      break;
+    }
+    HAL_Delay(50U);
+  }
+
+  if (hUsbDeviceFS.dev_state >= 2U)
+  {
+    debug_uart_tx("BL: USB DFU mode\r\n");
+    use_i2c_dfu = 0U;
+  }
+  else
+  {
+    debug_uart_tx("BL: no USB host — switching to I2C DFU mode\r\n");
+    MX_USB_DEVICE_DeInit();
+    I2C_DFU_Init(&hi2c1);
+    use_i2c_dfu = 1U;
+  }
+
   MX_IWDG_Init();
   /* USER CODE END 2 */
 
@@ -288,10 +313,14 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    if (use_i2c_dfu)
+    {
+      I2C_DFU_Process();
+    }
     HAL_GPIO_TogglePin(LD_HB_GPIO_Port, LD_HB_Pin);
-    HAL_Delay(800);
+    HAL_Delay(200U);
     /* Refresh IWDG: reload counter */
-    if(HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
+    if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
     {
       /* Refresh Error */
       Error_Handler();
