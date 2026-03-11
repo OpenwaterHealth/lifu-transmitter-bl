@@ -112,8 +112,15 @@ static void MX_IWDG_Init(void);
 static void jump_to_application(uint32_t app_base)
 {
     pFunction jump_to_app;
-    uint32_t jump_address;
     const uint32_t *app_vectors = (const uint32_t *)app_base;
+
+    /* Read vector table into local variables before any peripheral teardown so
+     * they are in registers (or on the current stack) before MSP is changed. */
+    uint32_t app_sp = app_vectors[0];
+    uint32_t app_rv = app_vectors[1];
+
+    /* Print vector table before touching clocks/peripherals so the UART still works. */
+    printf("BL: app SP=0x%08lX RV=0x%08lX\r\n", (unsigned long)app_sp, (unsigned long)app_rv);
 
     FW_DEBUG("jump prep\r\n");
 
@@ -128,10 +135,11 @@ static void jump_to_application(uint32_t app_base)
     SysTick->LOAD = 0;
     SysTick->VAL  = 0;
 
-    /* Reset clock configuration to default (HSI) */
+    /* Reset clock configuration to default (MSI 4 MHz).
+     * NOTE: after this call the UART clock is wrong; no debug prints below. */
     HAL_RCC_DeInit();
 
-    /* Disable all NVIC interrupts */
+    /* Disable all NVIC interrupts and clear pending flags */
     for (uint32_t i = 0; i < 8; i++)
     {
         NVIC->ICER[i] = 0xFFFFFFFF;
@@ -141,16 +149,13 @@ static void jump_to_application(uint32_t app_base)
     /* Set vector table location */
     SCB->VTOR = app_base;
 
-    /* Load MSP from application's vector table */
-    __set_MSP(app_vectors[0]);
+    /* Load MSP from application's vector table (already captured above) */
+    __set_MSP(app_sp);
 
     /* Jump to application's Reset_Handler */
-    jump_address = app_vectors[1];
-    jump_to_app = (pFunction)jump_address;
+    jump_to_app = (pFunction)app_rv;
 
     __enable_irq();
-
-    FW_DEBUG("jump\r\n");
 
     jump_to_app();
 
