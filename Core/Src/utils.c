@@ -31,12 +31,12 @@ uint8_t crc_test(){
 	  // Measure CPU CRC calculation time
 	  startTime = __HAL_TIM_GET_COUNTER(&htim3);
 
-	  printf("CRC Test\r\n");
+	  FW_DEBUG("CRC Test\r\n");
 	  uint16_t cpu_CRC = util_crc16((uint8_t*)CRC16_DATA8, BUFFER_SIZE);
 
 	  endTime = __HAL_TIM_GET_COUNTER(&htim3);
 	  duration = endTime - startTime;
-	  printf("CPU CRC: 0x%04x Duration: %lu us\r\n\r\n", cpu_CRC, duration);
+	  FW_DEBUG("CPU CRC: 0x%04x Duration: %lu us\r\n\r\n", cpu_CRC, duration);
 
 
 	  // Reset Counter if needed
@@ -48,7 +48,7 @@ uint8_t crc_test(){
 	  uint16_t hw_CRC = util_hw_crc16((uint8_t*)CRC16_DATA8, BUFFER_SIZE);
 	  endTime = __HAL_TIM_GET_COUNTER(&htim3);
 	  duration = endTime - startTime;
-	  printf("HW CRC: 0x%04x Duration: %lu us\r\n\r\n", hw_CRC, duration);
+	  FW_DEBUG("HW CRC: 0x%04x Duration: %lu us\r\n\r\n", hw_CRC, duration);
 
 	  return cpu_CRC == hw_CRC?0:1;
 }
@@ -91,11 +91,11 @@ const uint16_t crc16_tab[256] = {
 
 
 void printBuffer(const uint8_t* buffer, uint32_t size) {
-	printf("\r\nBuffer\r\n\r\n");
+	FW_DEBUG("\r\nBuffer\r\n\r\n");
     for (uint32_t i = 0; i < size; i++) {
-        printf("%02X ", buffer[i]); // Print each byte in hexadecimal format
+        FW_DEBUG("%02X ", buffer[i]); // Print each byte in hexadecimal format
     }
-    printf("\r\n\r\n"); // Print a newline character to separate the output
+    FW_DEBUG("\r\n\r\n"); // Print a newline character to separate the output
 }
 
 uint16_t util_crc16(const uint8_t* buf, uint32_t size) {
@@ -112,7 +112,7 @@ uint16_t util_crc16(const uint8_t* buf, uint32_t size) {
 uint16_t util_hw_crc16(uint8_t* buf, uint32_t size)
 {
 	uint32_t uwCRCValue = HAL_CRC_Accumulate(&hcrc, (uint32_t *)buf, size);
-	printf("uwCRCValue 0x%08lx\r\n", uwCRCValue);
+	FW_DEBUG("uwCRCValue 0x%08lx\r\n", uwCRCValue);
 	return (uint16_t)uwCRCValue;
 }
 
@@ -175,40 +175,6 @@ void delay_ms(uint32_t ms)
     while (delay_cycles--) {
         __NOP();  // Ensures the loop doesn't get optimized away
     }
-}
-
-void debug_uart_tx(const char *msg)
-{
-  uint32_t guard;
-  uint32_t idx = 0U;
-
-  while ((msg[idx] != '\0') && (idx < 255U))
-  {
-    guard = 1000000U;
-    while (((DEBUG_UART.Instance->ISR & USART_ISR_TXE) == 0U) && (guard > 0U))
-    {
-      --guard;
-    }
-
-    if (guard == 0U)
-    {
-      return;
-    }
-
-    DEBUG_UART.Instance->TDR = (uint8_t)msg[idx];
-    ++idx;
-  }
-
-  guard = 1000000U;
-  while (((DEBUG_UART.Instance->ISR & USART_ISR_TC) == 0U) && (guard > 0U))
-  {
-    --guard;
-  }
-}
-
-void debug_uart_clear(void)
-{
-  (void)HAL_UART_Transmit(&DEBUG_UART, (uint8_t *)"\033c", 2U, 100U);
 }
 
 uint32_t firmware_crc32(uint32_t fw_addr, uint32_t fw_len)

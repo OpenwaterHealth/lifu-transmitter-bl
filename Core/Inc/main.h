@@ -142,9 +142,11 @@ void Error_Handler(void);
 
 extern CRC_HandleTypeDef hcrc;
 extern TIM_HandleTypeDef htim2;
-extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
 
-#define DEBUG_UART huart1
+#define DEBUG_ENABLED 1
+#define DEBUG_UART huart2
+#define DEBUG_HALF_DUPLEX 1
 #define US_DELAY_TIMER htim2
 
 /* USER CODE END Private defines */

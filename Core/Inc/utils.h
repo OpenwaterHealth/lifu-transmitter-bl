@@ -25,7 +25,8 @@ void delay_us(uint32_t us);
 void delay_ms(uint32_t ms);
 float be_bytes_to_float(const uint8_t *b, size_t len);
 uint32_t firmware_crc32(uint32_t fw_addr, uint32_t fw_len);
-void debug_uart_clear(void);
-void debug_uart_tx(const char *msg);
+
+
+#define FW_DEBUG(fmt, ...) printf("[BL] " fmt, ##__VA_ARGS__)
 
 #endif /* INC_UTILS_H_ */

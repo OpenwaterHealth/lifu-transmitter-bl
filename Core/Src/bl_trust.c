@@ -272,7 +272,7 @@ uint8_t firmware_metadata_valid(const fw_metadata_t *meta)
 
   if (firmware_trust_tag_valid(meta) == 1U)
   {
-    debug_uart_tx("BL: trust tag valid\r\n");
+    FW_DEBUG("trust tag valid\r\n");
     bl_auth_cache_store(meta->fw_crc32);
     return 1U;
   }
@@ -280,7 +280,7 @@ uint8_t firmware_metadata_valid(const fw_metadata_t *meta)
   /* Cached auth for unchanged firmware: keep metadata and fw CRC checks on every boot. */
   if (bl_auth_cache_match(meta->fw_crc32) == 1U)
   {
-    debug_uart_tx("BL: auth cache hit\r\n");
+    FW_DEBUG("auth cache hit\r\n");
     return 1U;
   }
 
@@ -314,7 +314,7 @@ uint8_t bl_should_enter_dfu(const bl_reset_flags_t *reset_flags,
 
   if ((reset_flags->sft == 1U) && (RTC->BKP1R == BL_BKP_REQ_DFU_MAGIC))
   {
-    debug_uart_tx("BL: DFU requested (BKP)\r\n");
+    FW_DEBUG("DFU requested (BKP)\r\n");
     enter_dfu = 1U;
     RTC->BKP1R = 0U;
     RTC->BKP2R = 0U;
@@ -328,7 +328,7 @@ uint8_t bl_should_enter_dfu(const bl_reset_flags_t *reset_flags,
 
     if (reset_flags->iwdg == 1U)
     {
-      debug_uart_tx("BL: IWDG reset\r\n");
+      FW_DEBUG("IWDG reset\r\n");
       if ((state & BL_BKP_STATE_BOOT_IN_PROGRESS) != 0U)
       {
         if (fail_count != 0xFFU)
@@ -344,7 +344,7 @@ uint8_t bl_should_enter_dfu(const bl_reset_flags_t *reset_flags,
     {
       if ((meta_valid == 1U) && (RTC->BKP3R != 0U) && (meta->fw_crc32 != RTC->BKP3R))
       {
-        debug_uart_tx("BL: new firmware detected, clearing DFU force\r\n");
+        FW_DEBUG("new firmware detected, clearing DFU force\r\n");
         state &= ~BL_BKP_STATE_FORCE_DFU;
         state &= ~(BL_BKP_STATE_BOOT_IN_PROGRESS | BL_BKP_STATE_BOOT_OK);
         state = bl_bootstate_set_failcount(state, 0U);
@@ -355,7 +355,7 @@ uint8_t bl_should_enter_dfu(const bl_reset_flags_t *reset_flags,
       else
       {
         enter_dfu = 1U;
-        debug_uart_tx("BL: DFU forced (crash loop)\r\n");
+        FW_DEBUG("DFU forced (crash loop)\r\n");
       }
     }
 
@@ -371,7 +371,7 @@ uint8_t bl_should_enter_dfu(const bl_reset_flags_t *reset_flags,
         RTC->BKP3R = meta->fw_crc32;
       }
       enter_dfu = 1U;
-      debug_uart_tx("BL: entering DFU (boot failures)\r\n");
+      FW_DEBUG("entering DFU (boot failures)\r\n");
     }
   }
 

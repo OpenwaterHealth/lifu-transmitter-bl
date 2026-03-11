@@ -91,6 +91,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/sha256.c
     Core/Src/uECC.c
     Core/Src/bl_trust.c
+    Core/Src/lwrb.c    
+    Core/Src/logging.c
 )
 
 # Add include paths

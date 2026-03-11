@@ -27,6 +27,10 @@
 #include "bl_trust.h"
 #include "i2c_dfu_if.h"
 
+#ifdef DEBUG_ENABLED
+#include "logging.h"
+#endif
+
 #include "utils.h"
 
 #include <stdio.h>
@@ -111,7 +115,7 @@ static void jump_to_application(uint32_t app_base)
     uint32_t jump_address;
     const uint32_t *app_vectors = (const uint32_t *)app_base;
 
-    debug_uart_tx("BL: jump prep\r\n");
+    FW_DEBUG("jump prep\r\n");
 
     /* Fully tear down USB before handing off so the application
      * starts with the USB peripheral in reset state. */
@@ -146,7 +150,7 @@ static void jump_to_application(uint32_t app_base)
 
     __enable_irq();
 
-    debug_uart_tx("BL: jump\r\n");
+    FW_DEBUG("jump\r\n");
 
     jump_to_app();
 
@@ -199,6 +203,9 @@ int main(void)
   MX_AES_Init();
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
+#ifdef DEBUG_ENABLED
+  init_dma_logging();
+#endif
   const fw_metadata_t *meta = bl_metadata_ptr();
   bl_reset_flags_t reset_flags;
   uint8_t app_sp_sane;
@@ -206,37 +213,31 @@ int main(void)
   uint8_t meta_valid;
   uint8_t enter_dfu;
 
-  debug_uart_clear();
-  debug_uart_tx("LIFU Nucleo Bootloader\r\n");
-  debug_uart_tx("VER: ");
-  debug_uart_tx(FW_VERSION_STRING);
-  debug_uart_tx(" (");
-  debug_uart_tx(FW_SHA_STRING);
-  debug_uart_tx(")\r\nDate: ");
-  debug_uart_tx(FW_BUILD_TIME_STRING);
-  debug_uart_tx("\r\n");
+  printf("LIFU Transmitter Bootloader\r\n");
+  printf("VER: %s (%s)\r\n", FW_VERSION_STRING, FW_SHA_STRING);
+  printf("Date: %s\r\n", FW_BUILD_TIME_STRING);
 
-  debug_uart_tx("BL: boot start\r\n");
+  FW_DEBUG("boot start\r\n");
 
   reset_flags = bl_read_and_clear_reset_flags();
-  debug_uart_tx("BL: bootstate init\r\n");
+  FW_DEBUG("bootstate init\r\n");
   bl_bootstate_init();
   bl_clear_boot_state_cold(&reset_flags);
 
   HAL_GPIO_WritePin(LD_HB_GPIO_Port, LD_HB_Pin, GPIO_PIN_RESET);
 
-  debug_uart_tx("BL: app_sp_sane check\r\n");
+  FW_DEBUG("app_sp_sane check\r\n");
   app_sp_sane = bl_app_stack_pointer_sane();
-  debug_uart_tx("BL: app_rv_sane check\r\n");
+  FW_DEBUG("app_rv_sane check\r\n");
   app_rv_sane = bl_app_reset_vector_sane();
   if ((app_sp_sane == 1U) && (app_rv_sane == 1U))
   {
-    debug_uart_tx("BL: metadata/auth check\r\n");
+    FW_DEBUG("metadata/auth check\r\n");
     meta_valid = firmware_metadata_valid(meta);
   }
   else
   {
-    debug_uart_tx("BL: metadata/auth skipped\r\n");
+    FW_DEBUG("metadata/auth skipped\r\n");
     meta_valid = 0U;
   }
 
@@ -244,17 +245,17 @@ int main(void)
 
   if (app_sp_sane == 0U)
   {
-    debug_uart_tx("BL: app SP invalid\r\n");
+    FW_DEBUG("app SP invalid\r\n");
   }
 
   if (app_rv_sane == 0U)
   {
-    debug_uart_tx("BL: app RV invalid\r\n");
+    FW_DEBUG("app RV invalid\r\n");
   }
 
   if (meta_valid == 0U)
   {
-    debug_uart_tx("BL: metadata/auth invalid\r\n");
+    FW_DEBUG("metadata/auth invalid\r\n");
   }
 
 
@@ -266,16 +267,16 @@ int main(void)
     /* Start watchdog before handing off so a hung app will reset back into the bootloader. */
     MX_IWDG_Init();
 
-    debug_uart_tx("BL: jumping to app\r\n");
+    FW_DEBUG("jumping to app\r\n");
     jump_to_application(APPLICATION_ADDRESS);
   }
 
-  debug_uart_tx("BL: entering DFU mode\r\n");
+  FW_DEBUG("entering DFU mode\r\n");
 
   bl_clear_boot_in_progress();
 
   /* Attempt USB DFU first — wait up to 1.5 s for the host to enumerate */
-  debug_uart_tx("BL: init USB\r\n");
+  FW_DEBUG("init USB\r\n");
   MX_USB_DEVICE_Init();
 
   uint8_t  use_i2c_dfu  = 0U;
@@ -292,12 +293,12 @@ int main(void)
 
   if (hUsbDeviceFS.dev_state >= 2U)
   {
-    debug_uart_tx("BL: USB DFU mode\r\n");
+    FW_DEBUG("USB DFU mode\r\n");
     use_i2c_dfu = 0U;
   }
   else
   {
-    debug_uart_tx("BL: no USB host — switching to I2C DFU mode\r\n");
+    FW_DEBUG("no USB host — switching to I2C DFU mode\r\n");
     MX_USB_DEVICE_DeInit();
     I2C_DFU_Init(&hi2c1);
     use_i2c_dfu = 1U;
@@ -946,6 +947,17 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  
+#ifdef DEBUG_ENABLED
+	if(huart->Instance == DEBUG_UART.Instance)
+	{
+		logging_UART_TxCpltCallback(huart);
+    return;
+	}
+#endif
+}
 /* USER CODE END 4 */
 
 /**
@@ -997,7 +1009,7 @@ void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+     ex: FW_DEBUG("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
