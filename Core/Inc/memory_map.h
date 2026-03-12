@@ -146,9 +146,10 @@
 #define FLASH_START_ADDRESS        			((uint32_t)0x08000000)
 #define FLASH_END_ADDRESS				    ((uint32_t)0x08040000)
 #define BOOTLOADER_ADDRESS        			((uint32_t)0x08000000)
-#define METADATA_ADDRESS                    ((uint32_t)0x08017800) // next 2 KB page after 94 KB bootloader
-#define APPLICATION_ADDRESS        			((uint32_t)0x08018000) // 160 KB application region after metadata
-#define APPLICATION_MAX_SIZE                ((uint32_t)(160U * 1024U))
+#define METADATA_ADDRESS                    ((uint32_t)0x0800F800) // next 2 KB page after 62 KB bootloader
+#define APPLICATION_ADDRESS        			((uint32_t)0x08010000) // 190 KB application region after metadata
+#define APPLICATION_USER_CONFIG    			((uint32_t)0x0803F800) // 2 KB user config region (page 127, end of flash), application use only -- not writable via DFU
+#define APPLICATION_MAX_SIZE                ((uint32_t)(190U * 1024U))
 
 #define FW_META_MAGIC                       ((uint32_t)0x314D4657) // 'WFM1'
 #define FW_META_VERSION                     ((uint16_t)3U)

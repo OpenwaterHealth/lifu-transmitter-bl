@@ -35,6 +35,7 @@
 #include "stm32l4xx_hal.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include "memory_map.h"
 
 /* USER CODE END INCLUDE */
 
@@ -81,7 +82,7 @@
 /*---------- -----------*/
 #define USBD_DFU_XFER_SIZE     1024U
 /*---------- -----------*/
-#define USBD_DFU_APP_DEFAULT_ADD     0x08018000U
+#define USBD_DFU_APP_DEFAULT_ADD     APPLICATION_ADDRESS
 
 /****************************************/
 /* #define for FS and HS identification */

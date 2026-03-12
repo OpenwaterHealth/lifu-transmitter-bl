@@ -25,15 +25,16 @@ Target MCU: **STM32L443RCIx** — 256 KB Flash, 64 KB RAM (see `startup_stm32l44
 
 ### Flash memory layout
 
-The 256 KB Flash is split into three fixed regions:
+The 256 KB Flash is split into four fixed regions:
 
-| Region      | Base address   | Size   | Contents                                      |
-|-------------|----------------|--------|-----------------------------------------------|
-| Bootloader  | `0x08000000`   | 94 KB  | This bootloader binary                        |
-| Metadata    | `0x08017800`   | 2 KB   | `fw_metadata_t` struct (magic, CRC, signature)|
-| Application | `0x08018000`   | 160 KB | User application image                        |
+| Region      | Base address   | Size   | Contents                                       |
+|-------------|----------------|--------|------------------------------------------------|
+| Bootloader  | `0x08000000`   | 62 KB  | This bootloader binary                         |
+| Metadata    | `0x0800F800`   | 2 KB   | `fw_metadata_t` struct (magic, CRC, signature) |
+| Application | `0x08010000`   | 190 KB | User application image                         |
+| User Config | `0x0803F800`   | 2 KB   | Persistent app config (not writable via DFU)   |
 
-The bootloader is linked at `0x08000000` with a 94 KB FLASH region (see `STM32L443XX_FLASH.ld`). The USB DFU interface exposes only the metadata + application region (`@Firmware/0x08017800/1*2Kg,160*2Kg`) so the bootloader itself cannot be overwritten over USB.
+The bootloader is linked at `0x08000000` with a 62 KB FLASH region (see `STM32L443XX_FLASH.ld`). The USB DFU interface exposes only the metadata + application region (`@Firmware/0x0800F800/1*2Kg,190*2Kg`) so the bootloader itself and the user config page cannot be overwritten over USB.
 
 ### Boot decision flow
 
@@ -84,11 +85,11 @@ bl_should_enter_dfu()         ──►  Force DFU if any of:
       │
       └─── Boot ──► bl_mark_boot_in_progress()
                     MX_IWDG_Init()
-                    jump_to_application(0x08018000)
+                    jump_to_application(0x08010000)
                       • disable IRQs
                       • deinit RCC → HSI
                       • clear NVIC
-                      • set VTOR = 0x08018000
+                      • set VTOR = 0x08010000
                       • set MSP from app vector table[0]
                       • branch to app vector table[1] (Reset_Handler)
 ```
@@ -97,14 +98,14 @@ If the application boots successfully it is expected to write `BOOT_OK` into the
 
 ### Firmware metadata (`fw_metadata_t`)
 
-Stored at `0x08017800`, one 2 KB Flash page:
+Stored at `0x0800F800`, one 2 KB Flash page:
 
 | Field         | Type       | Description                                               |
 |---------------|------------|-----------------------------------------------------------|
 | `magic`       | `uint32_t` | Must be `0x314D4657` (`'WFM1'`)                           |
 | `version`     | `uint16_t` | Metadata format version (currently `3`)                   |
 | `flags`       | `uint16_t` | Bit 0 = `SIGNATURE_REQUIRED`                              |
-| `fw_address`  | `uint32_t` | Application start address (`0x08018000`)                  |
+| `fw_address`  | `uint32_t` | Application start address (`0x08010000`)                  |
 | `fw_length`   | `uint32_t` | Application image size in bytes                           |
 | `fw_crc32`    | `uint32_t` | CRC-32 of the application image                           |
 | `key_id`      | `uint32_t` | Identifies which provisioned public key to use            |
@@ -146,7 +147,7 @@ State survives `NVIC_SystemReset()` and watchdog resets because it is in the RTC
 
 When DFU mode is active the device enumerates over USB as a standard DFU device. The STM32 USB Device Library DFU class is used with the flash interface implemented in `USB_DEVICE/App/usbd_dfu_if.c`.
 
-- **Writable region:** metadata page + 160 application pages (starts at `0x08017800`)
+- **Writable region:** metadata page + 190 application pages (starts at `0x0800F800`); the user config page at `0x0803F800` is outside this range and is not writable via DFU
 - **Special erase-all command:** writing to address `0xFFFFFFFF` erases both regions
 - **Erase/program timing:** 50 ms each (conservative, HAL Flash driver is used)
 - The IWDG is refreshed by the DFU idle loop to keep the device alive during long USB transfers

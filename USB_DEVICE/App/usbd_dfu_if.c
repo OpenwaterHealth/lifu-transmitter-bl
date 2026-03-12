@@ -33,7 +33,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-#define FLASH_DESC_STR      "@Firmware/0x08017800/1*2Kg,160*2Kg"
+#define FLASH_DESC_STR  "@Firmware/0x0800F800/1*2Kg,190*2Kg"
 #define FLASH_ERASE_TIME    (uint16_t)50
 #define FLASH_PROGRAM_TIME  (uint16_t)50                                                             
 
