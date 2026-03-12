@@ -51,6 +51,10 @@
 #define DFU_VERSION_VIRT_ADDR   0xFFFFFF00U
 #define DFU_VERSION_READ_LEN    64U
 
+/* Virtual write address — DNLOAD to this address triggers a system reset.
+ * Address is 8-byte aligned and outside the STM32L443 flash range.          */
+#define DFU_RESET_VIRT_ADDR     0xFFFFFF08U
+
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -329,6 +333,13 @@ uint16_t MEM_If_Write_FS(uint8_t *src, uint8_t *dest, uint32_t Len)
   uint64_t doubleword = 0xFFFFFFFFFFFFFFFFULL;
 
   dfu_led_toggle_active();
+
+  /* Virtual reset address: trigger a system reset when the host writes here. */
+  if (dst_addr == DFU_RESET_VIRT_ADDR)
+  {
+    NVIC_SystemReset();
+    /* never returns */
+  }
 
   if (((dst_addr & 7U) != 0U) || (Len == 0U))
   {

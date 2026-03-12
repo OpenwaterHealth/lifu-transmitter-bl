@@ -39,6 +39,11 @@ TRUST_TAG_SIZE_BYTES = 32
 # in usbd_dfu_if.c.
 DFU_VERSION_VIRT_ADDR = 0xFFFFFF00
 DFU_VERSION_READ_LEN  = 64
+
+# Virtual write address used by the bootloader's MEM_If_Write_FS to trigger a
+# system reset via NVIC_SystemReset().  Must match DFU_RESET_VIRT_ADDR in
+# usbd_dfu_if.c.
+DFU_RESET_VIRT_ADDR = 0xFFFFFF08
 META_STRUCT_WITHOUT_CRC = "<IHHIIII64s32s"
 META_STRUCT_FULL = "<IHHIIII64s32sI"
 DEFAULT_RELOCATE_WINDOW = 190 * 1024
@@ -658,6 +663,8 @@ def main():
 
 	gv = sub.add_parser("get-version", help="Read bootloader version string via USB DFU")
 
+	rb = sub.add_parser("reboot", help="Reset the device from DFU mode")
+
 	r = sub.add_parser("read", help="Read bytes from target memory")
 	r.add_argument("address", type=_parse_int)
 	r.add_argument("length", type=_parse_int)
@@ -926,6 +933,12 @@ def main():
 				print("Version string is empty (bootloader may not support this command)")
 			else:
 				print(f"Bootloader version: {version}")
+		elif args.cmd == "reboot":
+			try:
+				dfu.write_memory(DFU_RESET_VIRT_ADDR, b'\x00' * 8)
+			except usb.core.USBError:
+				pass  # device reset before response — expected
+			print("Reset command sent. Device is rebooting.")
 		elif args.cmd == "read":
 			data = dfu.read_memory(args.address, args.length)
 			with open(args.outfile, "wb") as f:
