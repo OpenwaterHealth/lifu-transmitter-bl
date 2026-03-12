@@ -1,3 +1,4 @@
 pyusb
 cryptography
 libusb-package
+smbus2

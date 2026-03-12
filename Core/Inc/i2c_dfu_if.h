@@ -22,6 +22,12 @@
  *        byte[0]   : status code (see I2C_DFU_STATUS_*)
  *        byte[1]   : DFU state  (see I2C_DFU_STATE_*)
  *
+ *   For I2C_DFU_CMD_GETVERSION the read transaction is longer:
+ *        byte[0]   : status code
+ *        byte[1]   : DFU state
+ *        byte[2..N]: version string (null-padded to I2C_DFU_VERSION_STR_MAX bytes)
+ *   The master must issue a read of (2 + I2C_DFU_VERSION_STR_MAX) bytes.
+ *
  * The master must allow time for flash erase/program before reading status.
  * A status of I2C_DFU_STATUS_BUSY means the previous operation is still running;
  * the master should retry the read after a short delay.
@@ -72,6 +78,15 @@ extern "C" {
 /** Reset the device.  The slave resets after preparing a final OK response.
  *  Write payload: (none) */
 #define I2C_DFU_CMD_RESET          0x05U
+
+/** Query bootloader version string.
+ *  Write payload: (none)
+ *  Read  response: [status:1][state:1][version:I2C_DFU_VERSION_STR_MAX] */
+#define I2C_DFU_CMD_GETVERSION     0x06U
+
+/** Maximum length of the version string field in a GETVERSION response (bytes,
+ *  null-padded).  The total read length for GETVERSION is (2 + this value). */
+#define I2C_DFU_VERSION_STR_MAX    32U
 
 /* -------------------------------------------------------------------------
  * Status codes  (byte[0] of every read response)

@@ -24,6 +24,7 @@
  */
 
 #include "i2c_dfu_if.h"
+#include "common.h"
 #include "memory_map.h"
 #include <string.h>
 
@@ -73,8 +74,11 @@ static uint8_t  g_last_status = I2C_DFU_STATUS_OK;
 static uint8_t   g_rx_buf[RX_BUF_SIZE];
 static uint16_t  g_rx_len = 0U;  /* actual bytes received in last write txn */
 
-/* Transmit buffer — populated by process_command(), sent by ISR */
-static uint8_t   g_tx_buf[4U];   /* [status:1][state:1] + 2 spare */
+/* Transmit buffer — populated by process_command(), sent by ISR.
+ * Sized to hold the largest possible response: the GETVERSION payload
+ * is [status:1][state:1][version:I2C_DFU_VERSION_STR_MAX]. */
+#define TX_BUF_SIZE  (2U + I2C_DFU_VERSION_STR_MAX)
+static uint8_t   g_tx_buf[TX_BUF_SIZE];
 static uint16_t  g_tx_len = 2U;
 
 /* Extern handles defined in main.c */
@@ -271,6 +275,26 @@ static void process_command(void)
             set_response(I2C_DFU_STATUS_OK);
             g_mod_state = MOD_RESET;
             return;  /* early return — reset issued in I2C_DFU_Process() */
+        }
+
+        /* ---- GETVERSION ---------------------------------------------- */
+        case I2C_DFU_CMD_GETVERSION:
+        {
+            const char *ver = FW_VERSION_STRING;
+            size_t ver_len = strlen(ver);
+            if (ver_len > (size_t)I2C_DFU_VERSION_STR_MAX)
+            {
+                ver_len = (size_t)I2C_DFU_VERSION_STR_MAX;
+            }
+            g_tx_buf[0]   = I2C_DFU_STATUS_OK;
+            g_tx_buf[1]   = g_dfu_state;
+            memset(&g_tx_buf[2], 0, (size_t)I2C_DFU_VERSION_STR_MAX);
+            memcpy(&g_tx_buf[2], ver, ver_len);
+            g_tx_len      = (uint16_t)(2U + (uint16_t)I2C_DFU_VERSION_STR_MAX);
+            g_last_status = I2C_DFU_STATUS_OK;
+            g_rx_len      = 0U;
+            g_mod_state   = MOD_IDLE;
+            return;  /* early return — tx_buf already fully populated */
         }
 
         default:

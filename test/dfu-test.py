@@ -33,6 +33,12 @@ META_VERSION = 3
 META_FLAGS_SIGNATURE_REQUIRED = 1
 SIGNATURE_SIZE_BYTES = 64
 TRUST_TAG_SIZE_BYTES = 32
+
+# Virtual read address used by the bootloader's MEM_If_Read_FS to return the
+# version string via a standard DFU UPLOAD.  Must match DFU_VERSION_VIRT_ADDR
+# in usbd_dfu_if.c.
+DFU_VERSION_VIRT_ADDR = 0xFFFFFF00
+DFU_VERSION_READ_LEN  = 64
 META_STRUCT_WITHOUT_CRC = "<IHHIIII64s32s"
 META_STRUCT_FULL = "<IHHIIII64s32sI"
 DEFAULT_RELOCATE_WINDOW = 190 * 1024
@@ -650,6 +656,8 @@ def main():
 
 	i = sub.add_parser("info", help="Print USB descriptor information for DFU device")
 
+	gv = sub.add_parser("get-version", help="Read bootloader version string via USB DFU")
+
 	r = sub.add_parser("read", help="Read bytes from target memory")
 	r.add_argument("address", type=_parse_int)
 	r.add_argument("length", type=_parse_int)
@@ -911,6 +919,13 @@ def main():
 			print(f"Product:      {info['product']}")
 			print(f"Serial:       {info['serial']}")
 			print(f"DFU intf #:   {info['dfu_interface']}")
+		elif args.cmd == "get-version":
+			raw = dfu.read_memory(DFU_VERSION_VIRT_ADDR, DFU_VERSION_READ_LEN)
+			version = raw.split(b"\x00")[0].decode("ascii", errors="replace")
+			if not version:
+				print("Version string is empty (bootloader may not support this command)")
+			else:
+				print(f"Bootloader version: {version}")
 		elif args.cmd == "read":
 			data = dfu.read_memory(args.address, args.length)
 			with open(args.outfile, "wb") as f:

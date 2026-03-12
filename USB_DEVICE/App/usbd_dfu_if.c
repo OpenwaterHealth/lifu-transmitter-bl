@@ -23,6 +23,8 @@
 /* USER CODE BEGIN INCLUDE */
 #include "main.h"
 #include "memory_map.h"
+#include "common.h"
+#include <string.h>
 
 /* USER CODE END INCLUDE */
 
@@ -43,6 +45,11 @@
 #define DFU_APP_SIZE_BYTES  APPLICATION_MAX_SIZE
 #define DFU_APP_END_ADDR    (DFU_APP_START_ADDR + DFU_APP_SIZE_BYTES)
 #define DFU_ERASE_ALL_CMD_ADDR  0xFFFFFFFFU
+
+/* Virtual read address — outside flash; UPLOAD from this address returns the
+ * bootloader version string (null-padded to DFU_VERSION_READ_LEN bytes).    */
+#define DFU_VERSION_VIRT_ADDR   0xFFFFFF00U
+#define DFU_VERSION_READ_LEN    64U
 
 /* USER CODE END PV */
 
@@ -388,18 +395,30 @@ uint8_t *MEM_If_Read_FS(uint8_t *src, uint8_t *dest, uint32_t Len)
 {
   /* Return a valid address to avoid HardFault */
   /* USER CODE BEGIN 4 */
+  dfu_led_toggle_active();
+
+  /* Virtual address: return bootloader version string instead of reading flash */
+  if ((uint32_t)src == DFU_VERSION_VIRT_ADDR)
+  {
+    const char *ver = FW_VERSION_STRING;
+    uint32_t ver_len = (uint32_t)strlen(ver);
+    if (ver_len > DFU_VERSION_READ_LEN) { ver_len = DFU_VERSION_READ_LEN; }
+    if (ver_len > Len)                  { ver_len = Len; }
+    memset(dest, 0, Len);
+    memcpy(dest, ver, ver_len);
+    dfu_led_set_active_on();
+    return dest;
+  }
+
   uint32_t i = 0;
   uint8_t *psrc = src;
-
-  dfu_led_toggle_active();
-  
   for(i = 0; i < Len; i++)
   {
     dest[i] = *psrc++;
   }
   dfu_led_set_active_on();
   /* Return a valid address to avoid HardFault */
-  return (uint8_t*)(dest); 
+  return (uint8_t*)(dest);
   /* USER CODE END 4 */
 }
 
