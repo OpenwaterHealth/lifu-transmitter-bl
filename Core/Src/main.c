@@ -87,6 +87,8 @@ DMA_HandleTypeDef hdma_usart3_tx;
 extern USBD_HandleTypeDef hUsbDeviceFS;
 // Define the pointers
 I2C_HandleTypeDef* GLOBAL_I2C_DEVICE = NULL;
+volatile bool isUSBConnected = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -302,8 +304,10 @@ int main(void)
     }
     HAL_Delay(50U);
   }
-#if 1
-  if (hUsbDeviceFS.dev_state >= 2U)
+  
+  HAL_Delay(400U);
+
+  if (isUSBConnected)
   {
     FW_DEBUG("USB DFU mode\r\n");
     use_i2c_dfu = 0U;
@@ -315,12 +319,6 @@ int main(void)
     I2C_DFU_Init(&hi2c1);
     use_i2c_dfu = 1U;
   }
-#else
-  FW_DEBUG("no USB host — switching to I2C DFU mode\r\n");
-  MX_USB_DEVICE_DeInit();
-  I2C_DFU_Init(&hi2c1);
-  use_i2c_dfu = 1U;
-#endif
 
   MX_IWDG_Init();
   /* USER CODE END 2 */

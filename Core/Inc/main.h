@@ -31,6 +31,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 
 /* USER CODE END Includes */
 
@@ -153,6 +154,8 @@ extern UART_HandleTypeDef huart2;
 
 extern I2C_HandleTypeDef* GLOBAL_I2C_DEVICE;
 #define DFU_I2C_ADDRESS 0x72
+
+extern volatile bool isUSBConnected;
 
 /* USER CODE END Private defines */
 

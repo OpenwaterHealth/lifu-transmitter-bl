@@ -26,6 +26,7 @@
 #include "usbd_dfu.h"
 
 /* USER CODE BEGIN Includes */
+#include "main.h"
 
 /* USER CODE END Includes */
 
@@ -209,10 +210,11 @@ static void PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
-  /* Inform USB library that core enters in suspend Mode. */
+  /* Inform USB library that core enters in suspend Mode. */  
   USBD_LL_Suspend((USBD_HandleTypeDef*)hpcd->pData);
   /* Enter in STOP mode. */
   /* USER CODE BEGIN 2 */
+  
   if (hpcd->Init.low_power_enable)
   {
     /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register. */
@@ -235,6 +237,7 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 {
 
   /* USER CODE BEGIN 3 */
+  isUSBConnected = true;
   if (hpcd->Init.low_power_enable)
   {
     /* Reset SLEEPDEEP bit of Cortex System Control Register. */

@@ -70,9 +70,15 @@ static volatile int           g_rx_step   = 0;  /* 0 = awaiting header, 1 = awai
 static uint8_t  g_dfu_state  = I2C_DFU_STATE_IDLE;
 static uint8_t  g_last_status = I2C_DFU_STATUS_OK;
 
-/* Receive buffer — filled by ISR, consumed by I2C_DFU_Process() */
+/* Receive buffer — filled by ISR for flash commands, consumed by I2C_DFU_Process() */
 static uint8_t   g_rx_buf[RX_BUF_SIZE];
 static uint16_t  g_rx_len = 0U;  /* actual bytes received in last write txn */
+
+/* Separate single-byte buffer for inline (non-flash) command receives.
+ * Using a dedicated buffer ensures that a GETSTATUS/GETVERSION/etc. arriving
+ * while an ERASE or DNLOAD is queued never overwrites g_rx_buf[CMD_OFFSET]
+ * or zeroes g_rx_len, which would corrupt the pending flash command. */
+static uint8_t   g_inline_cmd = 0U;
 
 /* Transmit buffer — populated by process_command(), sent by ISR.
  * Sized to hold the largest possible response: the GETVERSION payload
@@ -318,9 +324,8 @@ static void process_command(void)
  * any dependency on the main-loop calling I2C_DFU_Process() in time.
  * ---------------------------------------------------------------------- */
 
-static void process_inline(void)
+static void process_inline(uint8_t cmd)
 {
-    uint8_t cmd = g_rx_buf[CMD_OFFSET];
 
     switch (cmd)
     {
@@ -357,7 +362,9 @@ static void process_inline(void)
             g_tx_buf[0]   = I2C_DFU_STATUS_OK;
             g_tx_buf[1]   = I2C_DFU_STATE_IDLE;
             g_tx_len      = 2U;
-            break;
+            g_rx_len      = 0U;
+            g_mod_state   = MOD_IDLE;
+            return;
         }
 
         case I2C_DFU_CMD_RESET:
@@ -366,7 +373,6 @@ static void process_inline(void)
             g_tx_buf[1]   = I2C_DFU_STATE_IDLE;
             g_tx_len      = 2U;
             g_last_status = I2C_DFU_STATUS_OK;
-            g_rx_len      = 0U;
             g_mod_state   = MOD_RESET;  /* main loop will call NVIC_SystemReset() */
             return;  /* early return — mod_state handled separately */
         }
@@ -377,12 +383,16 @@ static void process_inline(void)
             g_tx_buf[1]   = g_dfu_state;
             g_tx_len      = 2U;
             g_last_status = I2C_DFU_STATUS_ERROR;
-            break;
+            g_mod_state   = MOD_IDLE;
+            return;
         }
     }
-
-    g_rx_len    = 0U;
-    g_mod_state = MOD_IDLE;
+    /*
+     * GETSTATUS and GETVERSION are pure reads — g_mod_state and g_rx_buf/
+     * g_rx_len must NOT be touched here.  If an ERASE or DNLOAD is queued
+     * (MOD_CMD_READY / MOD_BUSY), those fields belong to that pending op.
+     * MANIFEST and RESET return early above.
+     */
 }
 
 /* -------------------------------------------------------------------------
@@ -472,10 +482,14 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c,
 
     if (TransferDirection == I2C_DIRECTION_TRANSMIT)
     {
-        /* Master WRITES → slave receives the command byte first */
-        g_rx_len  = 0U;
+        /*
+         * Master WRITES → receive the command byte into g_inline_cmd.
+         * Using a dedicated byte (not g_rx_buf[0]) ensures that a GETSTATUS
+         * or GETVERSION arriving while an ERASE/DNLOAD is queued never
+         * corrupts the pending command data in g_rx_buf.
+         */
         g_rx_step = 0;
-        HAL_I2C_Slave_Seq_Receive_IT(hi2c, g_rx_buf, 1U, I2C_FIRST_FRAME);
+        HAL_I2C_Slave_Seq_Receive_IT(hi2c, &g_inline_cmd, 1U, I2C_FIRST_FRAME);
     }
     else
     {
@@ -514,12 +528,15 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c)
     if (g_rx_step == 0)
     {
         /* ---- Command byte phase ---------------------------------------- */
-        uint8_t cmd = g_rx_buf[CMD_OFFSET];
+        /* cmd was received into g_inline_cmd (NOT g_rx_buf) in AddrCallback */
+        uint8_t cmd = g_inline_cmd;
 
         switch (cmd)
         {
             case I2C_DFU_CMD_ERASE:
-                /* Receive the 4-byte target address */
+                /* Copy cmd into g_rx_buf and receive the 4-byte address */
+                g_rx_buf[CMD_OFFSET] = cmd;
+                g_rx_len  = 0U;
                 g_rx_step = 1;
                 HAL_I2C_Slave_Seq_Receive_IT(hi2c,
                                               g_rx_buf + 1U,
@@ -528,7 +545,9 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c)
                 return;
 
             case I2C_DFU_CMD_DNLOAD:
-                /* Receive the remaining header bytes (addr[4] + len[2] = 6) */
+                /* Copy cmd into g_rx_buf and receive the remaining header */
+                g_rx_buf[CMD_OFFSET] = cmd;
+                g_rx_len  = 0U;
                 g_rx_step = 1;
                 HAL_I2C_Slave_Seq_Receive_IT(hi2c,
                                               g_rx_buf + 1U,
@@ -537,10 +556,13 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c)
                 return;
 
             default:
-                /* Single-byte command — process immediately in ISR context */
-                g_rx_len  = 1U;
+                /*
+                 * Inline command (GETSTATUS, GETVERSION, MANIFEST, RESET).
+                 * Process immediately — g_rx_buf and g_rx_len are NOT touched,
+                 * so any pending ERASE/DNLOAD in g_rx_buf is fully preserved.
+                 */
                 g_rx_step = 0;
-                process_inline();   /* fills g_tx_buf; sets MOD_IDLE or MOD_RESET */
+                process_inline(cmd);
                 return;
         }
     }
