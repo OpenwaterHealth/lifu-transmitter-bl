@@ -63,8 +63,8 @@ typedef enum
     MOD_RESET,      /* Waiting to call NVIC_SystemReset */
 } mod_state_t;
 
-static I2C_HandleTypeDef    *g_hi2c       = NULL;
 static volatile mod_state_t  g_mod_state  = MOD_IDLE;
+static volatile int           g_rx_step   = 0;  /* 0 = awaiting header, 1 = awaiting DNLOAD data */
 
 /* DFU-level state (reported in every read response) */
 static uint8_t  g_dfu_state  = I2C_DFU_STATE_IDLE;
@@ -310,16 +310,95 @@ static void process_command(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Inline handler — called from ISR for commands that need NO flash ops.
+ *
+ * These commands (GETSTATUS, GETVERSION, MANIFEST, RESET) are processed
+ * immediately when the command byte is received so that g_tx_buf is fully
+ * populated before the master ever issues its read transaction.  This avoids
+ * any dependency on the main-loop calling I2C_DFU_Process() in time.
+ * ---------------------------------------------------------------------- */
+
+static void process_inline(void)
+{
+    uint8_t cmd = g_rx_buf[CMD_OFFSET];
+
+    switch (cmd)
+    {
+        case I2C_DFU_CMD_GETSTATUS:
+        {
+            g_tx_buf[0] = g_last_status;
+            g_tx_buf[1] = g_dfu_state;
+            g_tx_len    = 2U;
+            break;
+        }
+
+        case I2C_DFU_CMD_GETVERSION:
+        {
+            const char *ver = FW_VERSION_STRING;
+            size_t ver_len  = strlen(ver);
+            if (ver_len > (size_t)I2C_DFU_VERSION_STR_MAX)
+            {
+                ver_len = (size_t)I2C_DFU_VERSION_STR_MAX;
+            }
+            g_tx_buf[0]   = I2C_DFU_STATUS_OK;
+            g_tx_buf[1]   = g_dfu_state;
+            memset(&g_tx_buf[2], 0, (size_t)I2C_DFU_VERSION_STR_MAX);
+            memcpy(&g_tx_buf[2], ver, ver_len);
+            g_tx_len      = (uint16_t)(2U + (uint16_t)I2C_DFU_VERSION_STR_MAX);
+            g_last_status = I2C_DFU_STATUS_OK;
+            break;
+        }
+
+        case I2C_DFU_CMD_MANIFEST:
+        {
+            HAL_FLASH_Lock();
+            g_dfu_state   = I2C_DFU_STATE_IDLE;
+            g_last_status = I2C_DFU_STATUS_OK;
+            g_tx_buf[0]   = I2C_DFU_STATUS_OK;
+            g_tx_buf[1]   = I2C_DFU_STATE_IDLE;
+            g_tx_len      = 2U;
+            break;
+        }
+
+        case I2C_DFU_CMD_RESET:
+        {
+            g_tx_buf[0]   = I2C_DFU_STATUS_OK;
+            g_tx_buf[1]   = I2C_DFU_STATE_IDLE;
+            g_tx_len      = 2U;
+            g_last_status = I2C_DFU_STATUS_OK;
+            g_rx_len      = 0U;
+            g_mod_state   = MOD_RESET;  /* main loop will call NVIC_SystemReset() */
+            return;  /* early return — mod_state handled separately */
+        }
+
+        default:
+        {
+            g_tx_buf[0]   = I2C_DFU_STATUS_ERROR;
+            g_tx_buf[1]   = g_dfu_state;
+            g_tx_len      = 2U;
+            g_last_status = I2C_DFU_STATUS_ERROR;
+            break;
+        }
+    }
+
+    g_rx_len    = 0U;
+    g_mod_state = MOD_IDLE;
+}
+
+/* -------------------------------------------------------------------------
  * Public API
  * ---------------------------------------------------------------------- */
 
 void I2C_DFU_Init(I2C_HandleTypeDef *hi2c)
 {
-    g_hi2c        = hi2c;
+    /* Expose via the global pointer so callbacks can use GLOBAL_I2C_DEVICE */
+    GLOBAL_I2C_DEVICE = hi2c;
+
     g_mod_state   = MOD_IDLE;
     g_dfu_state   = I2C_DFU_STATE_IDLE;
     g_last_status = I2C_DFU_STATUS_OK;
     g_rx_len      = 0U;
+    g_rx_step     = 0;
 
     /* Default transmit response: OK + IDLE */
     g_tx_buf[0] = I2C_DFU_STATUS_OK;
@@ -327,14 +406,14 @@ void I2C_DFU_Init(I2C_HandleTypeDef *hi2c)
     g_tx_len    = 2U;
 
     /*
-     * Reconfigure I2C1 as a 7-bit slave at I2C_DFU_SLAVE_ADDR.
-     * HAL_I2C_DeInit() calls HAL_I2C_MspDeInit() (disables clock / GPIO /
-     * NVIC), and HAL_I2C_Init() calls HAL_I2C_MspInit() to re-enable them.
+     * Reconfigure as a 7-bit slave at DFU_I2C_ADDRESS (defined in main.h).
+     * HAL_I2C_DeInit() / HAL_I2C_Init() cycle re-runs MspInit so clocks,
+     * GPIO and NVIC are all correctly (re-)enabled.
      */
     HAL_I2C_DeInit(hi2c);
 
     hi2c->Init.Timing          = 0x10805D88U; /* Same timing as original MX init */
-    hi2c->Init.OwnAddress1     = (I2C_DFU_SLAVE_ADDR << 1U);
+    hi2c->Init.OwnAddress1     = (DFU_I2C_ADDRESS << 1U);
     hi2c->Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
     hi2c->Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
     hi2c->Init.OwnAddress2     = 0U;
@@ -342,12 +421,12 @@ void I2C_DFU_Init(I2C_HandleTypeDef *hi2c)
     hi2c->Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
     hi2c->Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
 
-    if (HAL_I2C_Init(hi2c) != HAL_OK)                                    { Error_Handler(); }
+    if (HAL_I2C_Init(hi2c) != HAL_OK)                                         { Error_Handler(); }
     if (HAL_I2CEx_ConfigAnalogFilter(hi2c, I2C_ANALOGFILTER_ENABLE) != HAL_OK) { Error_Handler(); }
-    if (HAL_I2CEx_ConfigDigitalFilter(hi2c, 0U) != HAL_OK)               { Error_Handler(); }
+    if (HAL_I2CEx_ConfigDigitalFilter(hi2c, 0U) != HAL_OK)                    { Error_Handler(); }
 
     /* Start listening for the first transaction from the I2C master */
-    if (HAL_I2C_EnableListen_IT(hi2c) != HAL_OK)                         { Error_Handler(); }
+    if (HAL_I2C_EnableListen_IT(hi2c) != HAL_OK)                              { Error_Handler(); }
 }
 
 void I2C_DFU_Process(void)
@@ -372,8 +451,16 @@ void I2C_DFU_Process(void)
 
 /**
  * @brief  Address-match callback — fired when the master addresses us.
- *         Set up either a sequential receive or transmit depending on
- *         the transfer direction signalled by the master.
+ *
+ *         For master WRITE (TransferDirection == I2C_DIRECTION_TRANSMIT):
+ *           Receive exactly 1 byte (the command byte) with I2C_FIRST_FRAME.
+ *           SlaveRxCpltCallback will extend the receive based on the command.
+ *           Receiving only 1 byte ensures the receive ALWAYS completes normally
+ *           (no partial-receive / XferCount edge cases from the HAL).
+ *
+ *         For master READ (TransferDirection == I2C_DIRECTION_RECEIVE):
+ *           g_tx_buf is always pre-populated by process_inline() or by the
+ *           previous flash operation, so transmit it immediately.
  */
 void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c,
                            uint8_t TransferDirection,
@@ -381,20 +468,18 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c,
 {
     (void)AddrMatchCode;
 
-    if (hi2c->Instance != I2C1) { return; }
+    if (hi2c->Instance != GLOBAL_I2C_DEVICE->Instance) { return; }
 
-    if (TransferDirection == I2C_DIRECTION_RECEIVE)
+    if (TransferDirection == I2C_DIRECTION_TRANSMIT)
     {
-        /* Master is writing a command packet to us */
-        g_rx_len = 0U;
-        HAL_I2C_Slave_Sequential_Receive_IT(hi2c,
-                                             g_rx_buf,
-                                             RX_BUF_SIZE,
-                                             I2C_FIRST_AND_LAST_FRAME);
+        /* Master WRITES → slave receives the command byte first */
+        g_rx_len  = 0U;
+        g_rx_step = 0;
+        HAL_I2C_Slave_Seq_Receive_IT(hi2c, g_rx_buf, 1U, I2C_FIRST_FRAME);
     }
     else
     {
-        /* Master is reading our response */
+        /* Master READS → transmit the already-prepared response buffer */
         HAL_I2C_Slave_Sequential_Transmit_IT(hi2c,
                                               g_tx_buf,
                                               g_tx_len,
@@ -403,49 +488,139 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c,
 }
 
 /**
- * @brief  Called when the entire requested receive buffer is filled.
- *         This fires when the master sends exactly RX_BUF_SIZE bytes
- *         (uncommon in practice; most commands are much shorter).
+ * @brief  Called when the current sequential receive count is exactly met.
+ *
+ *         This callback is called from ISR context.  The lock is released by
+ *         I2C_ITSlaveSeqCplt() before invoking us, so it is safe to issue
+ *         another HAL_I2C_Slave_Seq_Receive_IT() call from here.
+ *
+ *         g_rx_step == 0  Command byte received (always exactly 1 byte).
+ *           Single-byte commands: process inline immediately — fills g_tx_buf
+ *             so the response is ready before the master issues its read.
+ *           Multi-byte commands: set up the next receive phase.
+ *
+ *         g_rx_step == 1  Second phase complete.
+ *           ERASE: 4-byte address received.  Pre-set BUSY response; main
+ *             loop performs the flash erase.
+ *           DNLOAD: 6-byte header tail received.  Extend receive for payload.
+ *
+ *         g_rx_step == 2  DNLOAD payload received.  Pre-set BUSY response;
+ *           main loop performs the flash write.
  */
 void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c)
 {
-    if (hi2c->Instance != I2C1) { return; }
+    if (hi2c->Instance != GLOBAL_I2C_DEVICE->Instance) { return; }
 
-    g_rx_len = (uint16_t)RX_BUF_SIZE;
-
-    if (g_mod_state == MOD_IDLE)
+    if (g_rx_step == 0)
     {
-        g_mod_state = MOD_CMD_READY;
+        /* ---- Command byte phase ---------------------------------------- */
+        uint8_t cmd = g_rx_buf[CMD_OFFSET];
+
+        switch (cmd)
+        {
+            case I2C_DFU_CMD_ERASE:
+                /* Receive the 4-byte target address */
+                g_rx_step = 1;
+                HAL_I2C_Slave_Seq_Receive_IT(hi2c,
+                                              g_rx_buf + 1U,
+                                              4U,
+                                              I2C_LAST_FRAME);
+                return;
+
+            case I2C_DFU_CMD_DNLOAD:
+                /* Receive the remaining header bytes (addr[4] + len[2] = 6) */
+                g_rx_step = 1;
+                HAL_I2C_Slave_Seq_Receive_IT(hi2c,
+                                              g_rx_buf + 1U,
+                                              (uint16_t)(HDR_SIZE - 1U),
+                                              I2C_NEXT_FRAME);
+                return;
+
+            default:
+                /* Single-byte command — process immediately in ISR context */
+                g_rx_len  = 1U;
+                g_rx_step = 0;
+                process_inline();   /* fills g_tx_buf; sets MOD_IDLE or MOD_RESET */
+                return;
+        }
+    }
+    else if (g_rx_step == 1)
+    {
+        /* ---- Second phase ---------------------------------------------- */
+        uint8_t cmd = g_rx_buf[CMD_OFFSET];
+
+        if (cmd == I2C_DFU_CMD_ERASE)
+        {
+            /* Full ERASE packet: 1 cmd + 4 addr = 5 bytes */
+            g_rx_len  = 5U;
+            g_rx_step = 0;
+            /* Pre-populate BUSY so any immediate status read is correct */
+            g_tx_buf[0]   = I2C_DFU_STATUS_BUSY;
+            g_tx_buf[1]   = I2C_DFU_STATE_DNBUSY;
+            g_tx_len      = 2U;
+            g_dfu_state   = I2C_DFU_STATE_DNBUSY;
+            g_last_status = I2C_DFU_STATUS_BUSY;
+            if (g_mod_state == MOD_IDLE)
+            {
+                g_mod_state = MOD_CMD_READY;
+            }
+        }
+        else  /* DNLOAD header tail received */
+        {
+            uint16_t data_len = 0U;
+            memcpy(&data_len, &g_rx_buf[LEN_OFFSET], sizeof(data_len));
+
+            if ((data_len == 0U) || (data_len > (uint16_t)I2C_DFU_MAX_XFER_SIZE))
+            {
+                /* Bad length rejected immediately */
+                g_rx_step     = 0;
+                g_tx_buf[0]   = I2C_DFU_STATUS_ERROR;
+                g_tx_buf[1]   = g_dfu_state;
+                g_tx_len      = 2U;
+                g_last_status = I2C_DFU_STATUS_ERROR;
+                return;
+            }
+
+            /* Receive the firmware payload */
+            g_rx_step = 2;
+            HAL_I2C_Slave_Seq_Receive_IT(hi2c,
+                                          g_rx_buf + HDR_SIZE,
+                                          data_len,
+                                          I2C_LAST_FRAME);
+        }
+    }
+    else  /* g_rx_step == 2 — DNLOAD payload received */
+    {
+        uint16_t data_len = 0U;
+        memcpy(&data_len, &g_rx_buf[LEN_OFFSET], sizeof(data_len));
+        g_rx_len  = (uint16_t)(HDR_SIZE + data_len);
+        g_rx_step = 0;
+        /* Pre-populate BUSY so any immediate status read is correct */
+        g_tx_buf[0]   = I2C_DFU_STATUS_BUSY;
+        g_tx_buf[1]   = I2C_DFU_STATE_DNBUSY;
+        g_tx_len      = 2U;
+        g_dfu_state   = I2C_DFU_STATE_DNBUSY;
+        g_last_status = I2C_DFU_STATUS_BUSY;
+        if (g_mod_state == MOD_IDLE)
+        {
+            g_mod_state = MOD_CMD_READY;
+        }
     }
 }
 
 /**
  * @brief  Called after a STOP condition ends the current transaction.
- *         This fires for both write and read transactions.
  *
- *         For write transactions where the master sent fewer bytes than
- *         RX_BUF_SIZE (the normal case), XferCount holds the number of
- *         bytes NOT yet received, so actual_received = RX_BUF_SIZE - XferCount.
+ *         With the 1-byte-first receive strategy, every receive phase
+ *         completes normally (SlaveRxCpltCallback fires for each phase).
+ *         This callback therefore only needs to reset state and re-arm.
  */
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c)
 {
-    if (hi2c->Instance != I2C1) { return; }
+    if (hi2c->Instance != GLOBAL_I2C_DEVICE->Instance) { return; }
 
-    /* If g_rx_len was not already set by SlaveRxCpltCallback, compute it
-     * from the remaining XferCount (partial receive before STOP). */
-    if (g_rx_len == 0U)
-    {
-        uint32_t remaining = hi2c->XferCount;
-        if (remaining < (uint32_t)RX_BUF_SIZE)
-        {
-            g_rx_len = (uint16_t)((uint32_t)RX_BUF_SIZE - remaining);
-        }
-    }
-
-    if ((g_rx_len > 0U) && (g_mod_state == MOD_IDLE))
-    {
-        g_mod_state = MOD_CMD_READY;
-    }
+    /* Reset step counter in case a transaction was truncated unexpectedly */
+    g_rx_step = 0;
 
     /* Re-arm the listener so we are ready for the next transaction */
     HAL_I2C_EnableListen_IT(hi2c);
@@ -453,53 +628,50 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c)
 
 /**
  * @brief  Called when the transmit of the response buffer completes.
- *         Nothing to do here; ListenCpltCallback will re-arm the listener.
+ *         Generate a NACK to signal end-of-data if the master continues
+ *         clocking, then let ListenCpltCallback re-arm the listener.
  */
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c)
 {
-    (void)hi2c;
+    if (hi2c->Instance != GLOBAL_I2C_DEVICE->Instance) { return; }
+    __HAL_I2C_GENERATE_NACK(hi2c);
 }
 
 /**
  * @brief  I2C error callback.
  *
- *         HAL_I2C_ERROR_AF on the transmit side is expected when the master
- *         NACKs after reading all response bytes — not a real error.
+ *         HAL_I2C_ERROR_AF is expected in two situations:
+ *           - TX side: master NACKs after reading all response bytes (normal).
+ *           - RX side: master stopped a transaction early (unexpected but
+ *             recoverable — reset step counter and re-arm).
  *
- *         For receive-side AF (master stopped before we expected), recover
- *         the partial byte count and treat it as a normal end of transaction.
+ *         HAL_I2C_ERROR_BERR (bus error) is handled by a DeInit/Init cycle.
  */
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 {
-    if (hi2c->Instance != I2C1) { return; }
+    if (hi2c->Instance != GLOBAL_I2C_DEVICE->Instance) { return; }
 
     uint32_t err = HAL_I2C_GetError(hi2c);
 
     if (err == HAL_I2C_ERROR_AF)
     {
-        /* Recover partial receive if applicable */
-        if (g_rx_len == 0U)
-        {
-            uint32_t remaining = hi2c->XferCount;
-            if (remaining < (uint32_t)RX_BUF_SIZE)
-            {
-                g_rx_len = (uint16_t)((uint32_t)RX_BUF_SIZE - remaining);
-            }
-        }
-
-        if ((g_rx_len > 0U) && (g_mod_state == MOD_IDLE))
-        {
-            g_mod_state = MOD_CMD_READY;
-        }
+        /* Normal NACK from master or truncated write — clear flag and recover */
+        __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_AF);
+    }
+    else if (err == HAL_I2C_ERROR_BERR)
+    {
+        /* Bus error — reinitialise the peripheral */
+        HAL_I2C_DeInit(hi2c);
+        HAL_I2C_Init(hi2c);
     }
     else
     {
-        /* Unexpected error — reset peripheral state machine */
+        /* Unexpected error — reset handle state */
         __HAL_I2C_RESET_HANDLE_STATE(hi2c);
-        g_rx_len    = 0U;
-        g_mod_state = MOD_IDLE;
     }
 
-    /* Always re-arm so we don't get stuck */
+    /* Reset step counter and re-arm listen mode */
+    g_rx_step   = 0;
+    g_rx_len    = 0U;
     HAL_I2C_EnableListen_IT(hi2c);
 }

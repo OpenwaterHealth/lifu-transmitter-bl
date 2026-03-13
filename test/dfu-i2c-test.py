@@ -52,7 +52,7 @@ SIGNED_PKG_HEADER_FULL  = "<IHHIIIIII"
 # I2C DFU protocol constants — must match i2c_dfu_if.h
 # ---------------------------------------------------------------------------
 
-I2C_DFU_SLAVE_ADDR_DEFAULT = 0x42
+I2C_DFU_SLAVE_ADDR_DEFAULT = 0x72
 
 # Commands (byte[0] of every write transaction)
 CMD_DNLOAD     = 0x01

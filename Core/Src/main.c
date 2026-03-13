@@ -85,6 +85,8 @@ DMA_HandleTypeDef hdma_usart3_tx;
 
 /* USER CODE BEGIN PV */
 extern USBD_HandleTypeDef hUsbDeviceFS;
+// Define the pointers
+I2C_HandleTypeDef* GLOBAL_I2C_DEVICE = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -227,6 +229,7 @@ int main(void)
 #endif
 
   FW_DEBUG("boot start\r\n");
+  GLOBAL_I2C_DEVICE = &hi2c1;
 
   reset_flags = bl_read_and_clear_reset_flags();
   FW_DEBUG("bootstate init\r\n");
@@ -299,7 +302,7 @@ int main(void)
     }
     HAL_Delay(50U);
   }
-
+#if 1
   if (hUsbDeviceFS.dev_state >= 2U)
   {
     FW_DEBUG("USB DFU mode\r\n");
@@ -312,6 +315,12 @@ int main(void)
     I2C_DFU_Init(&hi2c1);
     use_i2c_dfu = 1U;
   }
+#else
+  FW_DEBUG("no USB host — switching to I2C DFU mode\r\n");
+  MX_USB_DEVICE_DeInit();
+  I2C_DFU_Init(&hi2c1);
+  use_i2c_dfu = 1U;
+#endif
 
   MX_IWDG_Init();
   /* USER CODE END 2 */
@@ -327,8 +336,14 @@ int main(void)
     {
       I2C_DFU_Process();
     }
-    HAL_GPIO_TogglePin(LD_HB_GPIO_Port, LD_HB_Pin);
-    HAL_Delay(200U);
+    /* Keep heartbeat visible (~5 Hz) but don't block the DFU process loop */
+    static uint32_t hb_tick = 0U;
+    if ((HAL_GetTick() - hb_tick) >= 200U)
+    {
+      HAL_GPIO_TogglePin(LD_HB_GPIO_Port, LD_HB_Pin);
+      hb_tick = HAL_GetTick();
+    }
+    HAL_Delay(5U);  /* short yield; main loop now runs ~200 Hz */
     /* Refresh IWDG: reload counter */
     if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
     {

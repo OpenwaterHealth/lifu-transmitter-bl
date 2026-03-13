@@ -151,6 +151,9 @@ extern UART_HandleTypeDef huart2;
 
 #define US_DELAY_TIMER htim2
 
+extern I2C_HandleTypeDef* GLOBAL_I2C_DEVICE;
+#define DFU_I2C_ADDRESS 0x72
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
