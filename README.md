@@ -12,6 +12,7 @@ This repository contains a compact bootloader and supporting tooling used to bui
 - Persistent fault-tolerant boot state using RTC backup registers (survives watchdog and soft resets)
 - Automatic DFU fallback after two consecutive application boot failures
 - USB DFU firmware update over USB FS (STM32 USB Device Library)
+- I2C slave DFU fallback for transmitters without USB connectivity (daisy-chain topology)
 - CRC-32 guarded firmware metadata page separate from the application image
 - Auth cache avoids full re-verification on every warm boot
 
@@ -154,6 +155,61 @@ When DFU mode is active the device enumerates over USB as a standard DFU device.
 
 To request DFU mode programmatically from the running application, write the magic value `0x21554644` (`'DFU!'`) to RTC `BKP1R` and then call `NVIC_SystemReset()`. The bootloader will detect the magic on the next boot and enter USB DFU mode.
 
+### I2C DFU mode (no USB host)
+
+Transmitters not directly connected to a USB host receive firmware updates over I2C, relayed by the upstream transmitter in the chain.
+
+**Detection and fallback**
+
+After entering DFU mode the bootloader brings up the USB device stack and waits up to 1.5 s for a host to enumerate (addressed/configured state). If no USB host is detected within that window:
+
+1. The USB peripheral is torn down (`MX_USB_DEVICE_DeInit`).
+2. I2C1 is reconfigured as a 7-bit slave at address `0x42` (`I2C_DFU_SLAVE_ADDR`).
+3. The main loop calls `I2C_DFU_Process()` continuously instead of the USB DFU loop.
+4. The heartbeat LED toggles at ~5 Hz (200 ms period) to distinguish this mode from USB DFU (800 ms).
+
+**Chain topology**
+
+```
+USB host
+   │  (USB DFU)
+   ▼
+Transmitter 0 (USB-connected, I2C master)
+   │  I2C1  SCL=PB6 / SDA=PB7
+   ▼
+Transmitter 1 (no USB, I2C slave @ 0x42)   ← I2C DFU mode
+   │  (relay, future extension)
+   ▼
+  ...
+```
+
+The upstream transmitter's application firmware reads DFU packets from the USB host and relays them to the downstream slave over I2C.
+
+**I2C DFU protocol**
+
+Every DFU exchange consists of two separate I2C transactions:
+
+1. **WRITE** (master → slave): command byte, optional 4-byte target address (LE), optional 2-byte length (LE), optional data payload.
+2. **READ** (master ← slave): 1-byte status + 1-byte DFU state (plus version string for `GETVERSION`).
+
+If the status byte is `BUSY` (`0x01`) the flash operation is still running; the master must retry the read after a short delay.
+
+| Command         | Byte | Description                                                   |
+|-----------------|------|---------------------------------------------------------------|
+| `DNLOAD`        | 0x01 | Write `len` bytes of firmware to `addr`                       |
+| `ERASE`         | 0x02 | Erase flash page at `addr`; `0xFFFFFFFF` erases all app pages |
+| `GETSTATUS`     | 0x03 | Query status and DFU state (no payload)                       |
+| `MANIFEST`      | 0x04 | Finalise download — lock flash after all pages written        |
+| `RESET`         | 0x05 | Reset the device                                              |
+| `GETVERSION`    | 0x06 | Return 2-byte header + 32-byte null-padded version string     |
+
+**Writable region and constraints**
+
+- Same writable range as USB DFU: metadata page (`0x0800F800`) + 190 application pages.
+- Maximum payload per `DNLOAD` transaction: 2048 bytes (`I2C_DFU_MAX_XFER_SIZE`).
+- Flash erase/program is executed in the main loop (`I2C_DFU_Process`), not inside ISR callbacks, so IWDG can be refreshed during long full-erase sequences.
+- The IWDG is refreshed on every main-loop iteration to prevent a reset during slow transfers.
+
 ---
 
 ## Requirements
@@ -203,7 +259,8 @@ openocd -f interface/stlink.cfg -f target/stm32l4x.cfg -c "program build/Release
 
 ## Testing & utilities
 
-- `test/dfu-test.py` — DFU test helper (requires Python and pyserial or related deps).
+- `test/dfu-test.py` — USB DFU test helper (requires Python and pyserial or related deps).
+- `test/dfu-i2c-test.py` — I2C DFU test helper for downstream transmitters without USB.
 - `test/generate_keys.py` — helper to create test keys for signing/verifying images.
 
 Install Python test requirements:
